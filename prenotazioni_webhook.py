@@ -31,12 +31,25 @@ def webhook():
         if not google_creds_json:
             raise Exception("Variabile GOOGLE_CREDS_JSON non trovata.")
 
-        creds_dict = json.loads(google_creds_json)
-        credentials = service_account.Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+        creds_info = json.loads(google_creds_json)
+        credentials = service_account.Credentials.from_service_account_info(creds_info, scopes=SCOPES)
 
+        # Creazione servizio Google Calendar
         service = build("calendar", "v3", credentials=credentials)
 
-        # 📅 Evento da creare
+        # 📅 Controllo eventi sovrapposti
+        events_result = service.events().list(
+            calendarId=CALENDAR_ID,
+            timeMin=event_datetime.isoformat() + 'Z',
+            timeMax=event_end.isoformat() + 'Z',
+            singleEvents=True
+        ).execute()
+
+        events = events_result.get('items', [])
+        if events:
+            return jsonify({'fulfillmentText': "❌ L'orario è già occupato. Vuoi provare un altro orario?"})
+
+        # ✏️ Crea l'evento
         event = {
             'summary': 'Prenotazione da Dialogflow',
             'start': {'dateTime': event_datetime.isoformat(), 'timeZone': 'Europe/Rome'},
@@ -46,8 +59,13 @@ def webhook():
         created_event = service.events().insert(calendarId=CALENDAR_ID, body=event).execute()
         print("✅ Evento creato:", created_event['htmlLink'])
 
-        return jsonify({'fulfillmentText': "Prenotazione registrata con successo!"})
+        return jsonify({'fulfillmentText': f"✅ Prenotazione confermata per le {event_datetime.strftime('%H:%M del %d/%m/%Y')}"})
 
     except Exception as e:
         print("❌ Errore nel webhook:", e)
         return jsonify({'fulfillmentText': "Si è verificato un errore durante la prenotazione. Riprova più tardi."})
+
+
+if __name__ == '__main__':
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)
